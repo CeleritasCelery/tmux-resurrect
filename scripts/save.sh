@@ -142,20 +142,6 @@ capture_pane_contents() {
 	fi
 }
 
-save_shell_history() {
-	local pane_id="$1"
-	local pane_command="$2"
-	local full_command="$3"
-	if [ "$pane_command" == "bash" ] && [ "$full_command" == ":" ]; then
-		# leading space prevents the command from being saved to history
-		# (assuming default HISTCONTROL settings)
-		local write_command=" history -w '$(resurrect_history_file "$pane_id")'"
-		# C-e C-u is a Bash shortcut sequence to clear whole line. It is necessary to
-		# delete any pending input so it does not interfere with our history command.
-		tmux send-keys -t "$pane_id" C-e C-u "$write_command" C-m
-	fi
-}
-
 get_active_window_index() {
 	local session_name="$1"
 	tmux list-windows -t "$session_name" -F "#{window_flags} #{window_index}" |
@@ -246,10 +232,21 @@ dump_pane_contents() {
 }
 
 dump_bash_history() {
-	dump_panes |
-		while IFS=$d read line_type session_name window_number window_name window_active window_flags pane_index dir pane_active pane_command full_command; do
-			save_shell_history "$session_name:$window_number.$pane_index" "$pane_command" "$full_command"
-		done
+    # rm "$(resurrect_dir)"/bash_history-*
+	for file in ~/.tmux/bash_history/*
+	do
+		#extract everything to left of % in the file
+		local tmux_pane='%'$(echo $file | awk -F % '{ print $2 }')
+		if [ $tmux_pane != '%' ]; then
+			# make sure the pane is still present
+			if [ -z "$(tmux display -pt "${tmux_pane}" '#{pane_index}' 2>&1 > /dev/null)" ]; then
+				local pane_index=$(tmux display -pt "${tmux_pane}" '#{pane_index}')
+				local window_number=$(tmux display -pt "${tmux_pane}" '#{window_index}')
+				local session_name=$(tmux display -pt "${tmux_pane}" '#{session_name}')
+				cp $file "$(resurrect_history_file "$session_name:$window_number.$pane_index")"
+			fi
+		fi
+	done
 }
 
 save_all() {
