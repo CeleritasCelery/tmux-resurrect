@@ -252,16 +252,19 @@ restore_all_panes() {
 	detect_if_restoring_pane_contents  # sets a global variable
 	if is_restoring_pane_contents; then
 		pane_content_files_restore_from_archive
+        for file in $pane_contents_dir/*
+        do
+            # remove the prompt from the end of the pane dump
+            tail -n 3 "$file" | wc -c | xargs -I {} truncate "$file" -s -{}
+        done
 	fi
 	while read line; do
 		if is_line_type "pane" "$line"; then
 			restore_pane "$line"
 		fi
 	done < $(last_resurrect_file)
-	if is_restoring_pane_contents; then
-		pane_content_files_cleanup
-	fi
 }
+
 
 restore_pane_layout_for_each_window() {
 	\grep '^window' $(last_resurrect_file) |
@@ -278,12 +281,20 @@ restore_shell_history() {
 					local pane_id="$session_name:$window_number.$pane_index"
 					# tmux send-keys has -R option that should reset the terminal.
 					# However, appending 'clear' to the command seems to work more reliably.
-					local read_command="history -r '$(resurrect_history_file "$pane_id")'; clear"
+
+                    # old way of doing it
+                    local read_command="history -r '$(resurrect_history_file "$pane_id")'; history -w ; clear"
 					tmux send-keys -t "$pane_id" "$read_command" C-m
+
+                    # NOTE: new way of doing it (NOT WORKING YET)
+                    # echo start >> ~/temp/hist_files.txt
+                    # local copy_command="cp '$(resurrect_history_file "$pane_id")' $HISTFILE ; echo $HISTFILE >> ~/temp/histfile.txt; clear"
+					# tmux send-keys -t "$pane_id" "$copy_command" C-m
 				fi
 			fi
 		done
 }
+
 
 restore_all_pane_processes() {
 	if restore_pane_processes_enabled; then
@@ -339,12 +350,17 @@ restore_active_and_alternate_sessions() {
 
 main() {
 	if supported_tmux_version_ok && check_saved_session_exists; then
+        touch ~/temp/tmux_restore_running
 		start_spinner "Restoring..." "Tmux restore complete!"
-		restore_all_panes
-		restore_pane_layout_for_each_window >/dev/null 2>&1
 		if save_bash_history_option_on; then
+            rm ~/temp/bash_history/*
+            cp -r /nfs/site/home/tjhinckl/.tmux/bash_history/ ~/temp/prev_bash_history
+            rm /nfs/site/home/tjhinckl/.tmux/bash_history/*
 			restore_shell_history
 		fi
+		restore_all_panes
+		restore_pane_layout_for_each_window >/dev/null 2>&1
+
 		restore_all_pane_processes
 		# below functions restore exact cursor positions
 		restore_active_pane_for_each_window
@@ -354,6 +370,7 @@ main() {
 		restore_active_and_alternate_sessions
 		stop_spinner
 		display_message "Tmux restore complete!"
+        rm ~/temp/tmux_restore_running
 	fi
 }
 main
